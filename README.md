@@ -1,4 +1,4 @@
-# DevOps
+# <h1 align="center">DevOps (Developer and Operations)</h1>
 ## <h3 align="center">Tools for Devops</h3>
 
 <h3 align="left">Languages and Tools:</h3>
