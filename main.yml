@@ -1,0 +1,199 @@
+- name: update dan upgrade server    
+  hosts: all
+  become: true
+  tasks:
+  - name: update dan upgrade
+    apt:
+      update_cache: yes
+      upgrade: dist
+  tags: update-upgrade
+
+
+- name: Setup Docker & Docker Compose
+  hosts: all
+  become: true
+  tasks:
+    - name: Setup repository
+      shell: "sudo apt-get install ca-certificates curl gnupg lsb-release"
+      args:
+        executable: /bin/bash
+
+    - name: Add docker GPG key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Add docker repository
+      apt_repository:
+        repo: deb https://download.docker.com/linux/ubuntu focal stable
+        state: present
+
+    - name: Update system
+      apt:
+        update_cache: yes
+
+    - name: Install docker engine
+      apt:
+        name: "{{item}}"
+        state: latest
+        update_cache: yes
+      loop:
+        - docker-ce
+        - docker-ce-cli
+        - containerd.io
+
+    - name: Install stable release docker compose
+      shell: sudo curl -L "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+      args:
+        executable: /bin/bash
+
+    - name: Apply executable permission to the binary
+      shell: "sudo chmod +x /usr/local/bin/docker-compose"
+      args:
+        executable: /bin/bash
+  tags: setup-docker
+
+
+- name: Setup Database with postgre
+  hosts: database
+  become: true
+  tasks:
+    - name: Copying docker compose file
+      copy:
+        src: docker-compose-database.yml
+        dest: /home/ubuntu/
+
+    - name: Run docker compose
+      shell:
+        cmd: "docker-compose -f docker-compose-database.yml up -d"    
+  tags: setup-database
+
+
+- name: Setup-Aplikasi-Frontend-Backend
+  hosts: app
+  become: true
+  tasks:
+    - name: Copy docker compose
+      copy:
+        src: docker-compose-app.yml
+        dest: /home/ubuntu/
+    - name: clone housy-frontend production branch
+      ansible.builtin.git:
+        repo: https://github.com/rifaicham/housy-frontend.git
+        dest: /home/ubuntu/housy-frontend
+        single_branch: yes
+        version: development
+    - name: clone housy-backend production branch
+      ansible.builtin.git:
+        repo: https://github.com/rifaicham/housy-backend.git
+        dest: /home/ubuntu/housy-backend
+        single_branch: yes
+        version: development
+    - name: Run docker compose
+      shell: "docker-compose -f docker-compose-app.yml up -d"
+      args:
+        executable: /bin/bash
+  tags: setup-aplikasi
+
+
+- name: Setup Jenkins Docker
+  hosts: monitoring
+  become: true
+  tasks:
+    - name: Copy docker compose ci/cd
+      copy:
+        src: docker-compose-cicd.yml
+        dest: /home/ubuntu/
+
+    - name: Run docker compose
+      shell: "docker-compose -f docker-compose-cicd.yml up -d"        
+      args:
+        executable: /bin/bash
+  tags: setup-cicd
+
+
+- name: Installing node exporter
+  hosts: all
+  become: true
+  tasks:
+    - name: Copying docker compose file
+      copy:
+        src: files/monitoring/docker-compose-node_exporter.yml        
+        dest: /home/ubuntu/
+
+    - name: Run docker compose
+      shell:
+        cmd: "docker-compose -f docker-compose-node_exporter.yml up -d"
+  tags: setup-node_exporter
+
+
+- name: Setup monitoring
+  hosts: monitoring
+  become: true
+  tasks:
+    - name: Copying docker compose monitoring file
+      copy:
+        src: files/monitoring/docker-compose-monitoring.yml
+        dest: /home/ubuntu/
+
+    - name: Copying prometheus.yml file
+      copy:
+        src: files/monitoring/prometheus.yml
+        dest: /home/ubuntu/
+
+    - name: Copying web.yml file
+      copy:
+        src: files/monitoring/web.yml
+        dest: /home/ubuntu/
+
+    - name: Run compose up
+      shell:
+        cmd: "docker-compose -f docker-compose-monitoring.yml up -d"
+
+    - name: Change grafana folder permission
+      shell: "sudo chown 1000:1000 grafana/data/"
+      args:
+        executable: /bin/bash
+  tags: setup-monitoring
+
+
+- name: Setup Nginx
+  hosts: gateaway
+  become: true
+  tasks:
+
+    - name: Install Nginx
+      apt:
+        name: nginx
+        state: present
+        update_cache: yes
+
+    - name: Copying frontend.conf
+      copy:
+        src: frontend.conf
+        dest: /etc/nginx/conf.d
+
+    - name: Copying backend.conf
+      copy:
+        src: backend.conf
+        dest: /etc/nginx/conf.d
+
+    - name: Copying monitoring.conf
+      copy:
+        src: monitoring.conf
+        dest: /etc/nginx/conf.d
+
+    - name: Copying prometheus.conf
+      copy:
+        src: prometheus.conf
+        dest: /etc/nginx/conf.d
+
+    - name: Copying jenkins.conf
+      copy:
+        src: jenkins.conf
+        dest: /etc/nginx/conf.d
+
+    - name: Restart nginx
+      shell:
+        cmd: "systemctl restart nginx"
+  tags: Setup-gateaway
