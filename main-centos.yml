@@ -1,0 +1,196 @@
+- hosts: all
+  become: yes
+  tasks:
+  - name: "install nginx"
+    dnf:
+      name: ['nginx']
+      state: latest
+  - name: "create www directory"
+      file:
+        path: /var/www/{{ domain }}
+        state: directory
+        mode: '0775'
+        owner: "nginx"
+        group: "nginx"
+  - name: "delete default nginx site"
+    shell: sed -i 's/default_server//' /etc/nginx/nginx.conf
+    notify: restart nginx
+  - name: "open port 80"
+    shell: firewall-cmd --permanent --zone=public --add-service=http
+    notify: restart firewalld
+  - name: "copy nginx site.conf"
+    template:
+      src: template.conf
+      dest: /etc/nginx/conf.d/{{ domain }}.conf
+      owner: root
+      group: root
+      mode: '0644'
+    notify: restart nginx
+  tags: install_nginx
+
+- hosts: web
+  become: yes
+  tasks:
+  - name: "install repo php"
+    dnf:
+      name: ['https://rpms.remirepo.net/enterprise/remi-release-8.rpm']
+      state: latest
+  - name: "enable module php-7.4"
+    shell: dnf module reset php 
+    shell: dnf module enable php:remi-7.4
+  - name: "install php"
+    dnf:
+      name: ['php','php-fpm', 'php-common','php-xml', 'php-intl', 'php-mysql', 'php-pdo', 'php-mbstring', 'php-pgsql']
+      state: latest
+    notify: restart php-fpm
+  tags: install_php
+
+- hosts: all
+  become: yes
+  vars:
+    db_user: rifai
+    db_password: rifaipgsql
+    db_name: test
+  tasks:
+    - name: install postgres on RHEL based distros
+      yum:
+        name: "{{ item }}"
+        state: present
+        update_cache: true
+      become: true
+      loop:
+        - postgresql
+        - postgresql-server
+        - python3
+        - python3-pip
+      notify: restart postgresql
+
+    - name: Download pip installer
+      get_url:
+        url: https://bootstrap.pypa.io/get-pip.py
+        dest: /tmp/get-pip.py
+    - name: Install pip
+      shell: |
+        /usr/bin/python3 /tmp/get-pip.py    
+    - name: Install python-postgres packages packages
+      pip: "name={{ item }}  state=present"
+      with_items:
+        - psycopg2-binary
+   
+    - name: "Find out if PostgreSQL is initialized"
+      stat:
+        path: "/var/lib/pgsql/data/pg_hba.conf"
+      register: postgres_data
+
+    - name: "Initialize PostgreSQL"
+      shell: "postgresql-setup initdb"
+      when: not postgres_data.stat.exist
+
+    - name: Start and enable postgres services
+      service: "name={{ item }} state=started enabled=yes"
+      with_items:
+        - postgresql
+
+    - name: Create first database
+      postgresql_db:
+        state: present
+        name: "{{ db_name }}"
+      become: yes
+      become_user: postgres
+      
+    - name: Create db user
+      postgresql_user:
+        state: present
+        name: "{{ db_user }}"
+        password: "{{ db_password }}"
+      become: yes
+      become_user: postgres
+
+    - name: "Grant db user access to app db"
+      postgresql_privs:
+        type: database
+        database: "{{ db_name }}"
+        roles: "{{ db_user }}"
+        grant_option: no
+        privs: all
+      become: yes
+      become_user: postgres    
+  tags: install_postgresql
+
+
+    handlers:
+    - name: restart nginx
+      service:
+        name: nginx
+        state: restarted
+    
+    - name: restart firewalld
+      service:
+        name: firewalld
+        state: restarted
+
+    - name: restart php-fpm
+      service:
+        name: php-fpm
+        state: restarted
+
+    - name: restart postgresql
+      service:
+        name: postgresql
+        state: restarted
+
+
+- hosts: all
+  name: Install node_exporter on RHEL8
+  become: true
+  tasks:
+    - name: Add user node_exporter
+      user:
+        name: node_exporter
+        shell: /bin/false
+        system: true
+        create_home: no
+    - name: Download and extract 
+      unarchive:
+        src: https://github.com/prometheus/node_exporter/releases/download/v0.18.1/node_exporter-0.18.1.linux-amd64.tar.gz
+        dest: /tmp
+        remote_src: yes
+    - name: Copy bin node_exporter to /usr/local/bin
+      copy:
+        src: /tmp/node_exporter-0.18.1.linux-amd64/node_exporter
+        dest: /usr/local/bin/
+        owner: node_exporter
+        group: node_exporter
+        mode: u+x,g+x,o+x    
+    - name: Create service node_exporter.service
+      blockinfile:
+        path: /etc/systemd/system/node_exporter.service
+        block: |
+          [Unit]
+          Description=Prometheus Node Exporter
+          Wants=network-online.target
+          After=network-online.target
+
+          [Service]
+          User=node_exporter
+          Group=node_exporter
+          Type=simple
+          ExecStart=/usr/local/bin/node_exporter
+
+          [Install]
+          WantedBy=multi-user.target
+        create: true
+    - name: systemctl daemon_reload
+      systemd:
+        daemon_reload: yes
+    - name: Start and Enable node_exporter
+      service:
+        name: node_exporter
+        state: started
+        enabled: yes
+    - name: Check whether port 9100 is available
+      wait_for:
+        port: 9100
+        state: started
+        timeout: 5
+  tags: install_node-exporter
