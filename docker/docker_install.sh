@@ -35,7 +35,7 @@ sudo usermod -aG docker $(whoami)
 
 # download docker-compose
 # -----------------------
-sudo curl -L "https://github.com/docker/compose/releases/download/1.26.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+sudo curl -L "https://github.com/docker/compose/releases/download/v2.16.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
 
 # change permission docker-compose
 # --------------------------------
