@@ -45,15 +45,18 @@ positions:
   filename: /etc/promtail/positions.yaml
 
 clients:
-  - url: http://localhost:3100/loki/api/v1/push
+  - url: http://43.218.196.15:3100/loki/api/v1/push
 
 scrape_configs:
 - job_name: nginx
   static_configs:
   - targets:
-      - localhost[Unit] 
-Description=Promtail service 
-After=network.target 
+      - localhost
+    labels:
+      job: nginx
+      hostname: revamp-eperpus
+      __path__: /var/log/nginx/*.log
+
 ```
 
 ## Create a file called promtail.service
