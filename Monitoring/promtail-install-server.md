@@ -1,7 +1,6 @@
 ## check version promtail 
-```
+
 https://github.com/grafana/loki/releases/
-```
 
 ## Download promtail
 ```
